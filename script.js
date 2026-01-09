@@ -1,0 +1,419 @@
+
+// --- Constants ---
+const GRID_WIDTH = 10;
+const GRID_HEIGHT = 7;
+const TRAIN_SPEED = 0.005;
+const STOCK_SIZE = 10;
+
+const TRACK_CONNECTIONS = {
+    'vertical': ['up', 'down'],
+    'horizontal': ['left', 'right'],
+    'top-right': ['up', 'right'],
+    'right-bottom': ['right', 'down'],
+    'bottom-left': ['down', 'left'],
+    'left-top': ['left', 'up'],
+};
+
+// --- State ---
+const state = {
+    grid: [],
+    stock: [], // Array of { id: string, type: TrackType } to handle removal correcty
+    train: null,
+    score: 0,
+    gameState: 'idle', // 'idle', 'playing', 'gameover'
+    trainStartTime: 0
+};
+
+// --- DOM Elements ---
+const gridEl = document.getElementById('game-grid');
+const stockPanelEl = document.getElementById('stock-panel');
+const trainEl = document.getElementById('train');
+const scoreDisplayEl = document.getElementById('score-display');
+const gameOverDisplayEl = document.getElementById('game-over-display');
+const startBtn = document.getElementById('start-btn');
+
+// --- Helper Functions ---
+function getOppositeDirection(dir) {
+    switch (dir) {
+        case 'up': return 'down';
+        case 'down': return 'up';
+        case 'left': return 'right';
+        case 'right': return 'left';
+    }
+}
+
+function getNextStep(currentDir, trackType) {
+    const connections = TRACK_CONNECTIONS[trackType];
+    const cameFrom = getOppositeDirection(currentDir);
+
+    if (!connections.includes(cameFrom)) {
+        return null;
+    }
+
+    const newDir = connections.find(d => d !== cameFrom);
+    return newDir || null;
+}
+
+function getRandomTrack() {
+    const types = ['vertical', 'horizontal', 'top-right', 'right-bottom', 'bottom-left', 'left-top'];
+    return types[Math.floor(Math.random() * types.length)];
+}
+
+function generateStockItem() {
+    return {
+        id: Math.random().toString(36).substr(2, 9),
+        type: getRandomTrack()
+    };
+}
+
+// --- Initialization ---
+function initGame() {
+    // Generate Grid
+    const newGrid = [];
+    for (let y = 0; y < GRID_HEIGHT; y++) {
+        const row = [];
+        for (let x = 0; x < GRID_WIDTH; x++) {
+            row.push({
+                x,
+                y,
+                type: 'empty',
+                trackType: null,
+                item: Math.random() > 0.8 ? 'coin' : null
+            });
+        }
+        newGrid.push(row);
+    }
+
+    // Set Start Position
+    newGrid[0][0].type = 'track';
+    newGrid[0][0].trackType = 'horizontal';
+
+    state.grid = newGrid;
+
+    // Initialize Train
+    state.train = {
+        x: 0,
+        y: 0,
+        direction: 'right',
+        progress: 0.0,
+        speed: TRAIN_SPEED
+    };
+
+    // Initialize Stock
+    state.stock = Array(STOCK_SIZE).fill(null).map(generateStockItem);
+
+    // Reset Score & State
+    state.score = 0;
+    state.gameState = 'playing';
+    state.trainStartTime = Date.now() + 5000;
+
+    updateUI();
+
+    // Start Loop
+    requestAnimationFrame(gameLoop);
+}
+
+// --- Rendering ---
+function getTrackSVG(type) {
+    let d = '';
+    switch (type) {
+        case 'horizontal': d = 'M0,32 L64,32'; break;
+        case 'vertical': d = 'M32,0 L32,64'; break;
+        case 'top-right': d = 'M32,0 A32,32 0 0,0 64,32'; break;
+        case 'right-bottom': d = 'M64,32 A32,32 0 0,0 32,64'; break;
+        case 'bottom-left': d = 'M32,64 A32,32 0 0,0 0,32'; break;
+        case 'left-top': d = 'M0,32 A32,32 0 0,0 32,0'; break;
+    }
+
+    return `
+        <svg viewBox="0 0 64 64" class="track-svg">
+            <path d="${d}" class="track-path-rail" />
+            <path d="${d}" class="track-path-inner" />
+        </svg>
+    `;
+}
+
+function getStockSVG(type) {
+    // Simplified paths for icon
+    let d = '';
+    switch (type) {
+        case 'horizontal': d = 'M0,15 L30,15'; break;
+        case 'vertical': d = 'M15,0 L15,30'; break;
+        case 'top-right': d = 'M15,0 A15,15 0 0,0 30,15'; break;
+        case 'right-bottom': d = 'M30,15 A15,15 0 0,0 15,30'; break;
+        case 'bottom-left': d = 'M15,30 A15,15 0 0,0 0,15'; break;
+        case 'left-top': d = 'M0,15 A15,15 0 0,0 15,0'; break;
+    }
+    // Using blue stroke for stock icons
+    return `
+        <svg viewBox="0 0 30 30" style="width:24px; height:24px;">
+            <path d="${d}" stroke="#3b82f6" stroke-width="6" fill="none" stroke-linecap="round" />
+        </svg>
+    `;
+}
+
+function renderGrid() {
+    gridEl.innerHTML = '';
+    state.grid.forEach((row, y) => {
+        row.forEach((cell, x) => {
+            const cellEl = document.createElement('div');
+            cellEl.className = `cell ${cell.type === 'track' ? 'track' : ''}`;
+            cellEl.dataset.x = x;
+            cellEl.dataset.y = y;
+
+            // Allow Drop
+            cellEl.addEventListener('dragover', (e) => {
+                e.preventDefault(); // Necessary to allow dropping
+                if (state.gameState === 'playing' && cell.type !== 'track') {
+                    cellEl.classList.add('drag-over');
+                }
+            });
+
+            cellEl.addEventListener('dragleave', () => {
+                cellEl.classList.remove('drag-over');
+            });
+
+            cellEl.addEventListener('drop', (e) => handleDrop(e, x, y));
+
+            if (cell.type === 'track') {
+                cellEl.innerHTML = getTrackSVG(cell.trackType);
+            } else if (cell.item === 'coin') {
+                const coinEl = document.createElement('div');
+                coinEl.className = 'item-coin';
+                cellEl.appendChild(coinEl);
+            }
+
+            // Still allow click to place from head of stack (optional, but good UX fallback)
+            // But user asked for DnD Specifically. Let's keep click as taking First item.
+            cellEl.addEventListener('click', () => handleCellClick(x, y));
+
+            gridEl.appendChild(cellEl);
+        });
+    });
+}
+
+function renderStock() {
+    stockPanelEl.innerHTML = '';
+    state.stock.forEach((item, i) => {
+        const stockItem = document.createElement('div');
+        stockItem.className = 'stock-item';
+        stockItem.draggable = true;
+        stockItem.dataset.id = item.id;
+        stockItem.innerHTML = getStockSVG(item.type);
+
+        stockItem.addEventListener('dragstart', (e) => {
+            if (state.gameState !== 'playing') {
+                e.preventDefault();
+                return;
+            }
+            stockItem.classList.add('dragging');
+            // Store ID to identify which item was dragged
+            e.dataTransfer.setData('text/plain', item.id);
+            e.dataTransfer.setData('trackType', item.type); // Backup
+        });
+
+        stockItem.addEventListener('dragend', () => {
+            stockItem.classList.remove('dragging');
+        });
+
+        stockPanelEl.appendChild(stockItem);
+    });
+}
+
+function updateScore() {
+    scoreDisplayEl.textContent = `Score: ${state.score}`;
+}
+
+function updateUI() {
+    renderGrid();
+    renderStock();
+    updateScore();
+
+    if (state.gameState === 'playing') {
+        trainEl.style.display = 'flex';
+        startBtn.style.display = 'none';
+        gameOverDisplayEl.style.display = 'none';
+        startBtn.textContent = 'RETRY';
+    } else if (state.gameState === 'gameover') {
+        gameOverDisplayEl.style.display = 'block';
+        startBtn.style.display = 'block';
+    } else {
+        trainEl.style.display = 'none';
+        startBtn.style.display = 'block';
+        gameOverDisplayEl.style.display = 'none';
+    }
+}
+
+// --- Interaction ---
+
+function placeTrack(x, y, stockItemId) {
+    const cell = state.grid[y][x];
+    if (cell.type === 'track') return;
+
+    let stockIndex = -1;
+    if (stockItemId) {
+        stockIndex = state.stock.findIndex(s => s.id === stockItemId);
+    } else {
+        stockIndex = 0; // Default to first
+    }
+
+    if (stockIndex === -1) return;
+
+    const trackItem = state.stock[stockIndex];
+
+    // Remove used item
+    state.stock.splice(stockIndex, 1);
+    // Add new random item
+    state.stock.push(generateStockItem());
+
+    // Update Grid
+    cell.type = 'track';
+    cell.trackType = trackItem.type;
+
+    // Update DOM (Optimized)
+    const cellIndex = y * GRID_WIDTH + x;
+    const cellEl = gridEl.children[cellIndex];
+    cellEl.className = 'cell track'; // Remove drag-over etc
+
+    // Clear coin if any
+    const coinEl = cellEl.querySelector('.item-coin');
+    if (coinEl) coinEl.remove();
+
+    cellEl.innerHTML = getTrackSVG(trackItem.type);
+
+    renderStock();
+}
+
+function handleCellClick(x, y) {
+    if (state.gameState !== 'playing') return;
+    // Place first item
+    if (state.stock.length > 0) {
+        placeTrack(x, y, state.stock[0].id);
+    }
+}
+
+function handleDrop(e, x, y) {
+    e.preventDefault();
+    if (state.gameState !== 'playing') return;
+
+    const stockItemId = e.dataTransfer.getData('text/plain');
+    if (stockItemId) {
+        placeTrack(x, y, stockItemId);
+    }
+
+    // Clean up drag visual state
+    const cellIndex = y * GRID_WIDTH + x;
+    if (gridEl.children[cellIndex]) {
+        gridEl.children[cellIndex].classList.remove('drag-over');
+    }
+}
+
+// --- Game Loop ---
+function gameLoop() {
+    if (state.gameState !== 'playing') return;
+
+    if (Date.now() < state.trainStartTime) {
+        requestAnimationFrame(gameLoop);
+        return;
+    }
+
+    const t = state.train;
+    t.progress += t.speed;
+
+    if (t.progress >= 1.0) {
+        t.progress = 0.0;
+
+        let nextX = t.x;
+        let nextY = t.y;
+
+        if (t.direction === 'right') nextX++;
+        if (t.direction === 'left') nextX--;
+        if (t.direction === 'down') nextY++;
+        if (t.direction === 'up') nextY--;
+
+        // Bounds Check
+        if (nextX < 0 || nextX >= GRID_WIDTH || nextY < 0 || nextY >= GRID_HEIGHT) {
+            handleGameOver();
+            return;
+        }
+
+        const nextCell = state.grid[nextY][nextX];
+
+        // Track Check
+        if (nextCell.type !== 'track' || !nextCell.trackType) {
+            handleGameOver();
+            return;
+        }
+
+        const nextDir = getNextStep(t.direction, nextCell.trackType);
+        if (!nextDir) {
+            handleGameOver();
+            return;
+        }
+
+        // Move
+        t.x = nextX;
+        t.y = nextY;
+        t.direction = nextDir;
+
+        // Item Check (Coin)
+        // Check `item` property, but remember visuals might be gone
+        if (nextCell.item === 'coin') {
+            state.score += 100;
+            nextCell.item = null;
+            updateScore();
+            // Just case
+            const cellIndex = nextY * GRID_WIDTH + nextX;
+            const cellEl = gridEl.children[cellIndex];
+            const coinEl = cellEl.querySelector('.item-coin');
+            if (coinEl) coinEl.remove();
+        }
+    }
+
+    updateTrainVisuals();
+    requestAnimationFrame(gameLoop);
+}
+
+function updateTrainVisuals() {
+    const t = state.train;
+    // 64 + 2gap = 66? CSS says gap 2px.
+    // Cell size 64. Gap 2.
+    // Index 0: 0. Index 1: 64+2 = 66.
+    // Pos = Index * 66.
+    // Center offset = 32.
+    const cellSize = 64;
+    const gap = 2;
+    const stride = cellSize + gap;
+
+    const baseX = t.x * stride + (cellSize / 2);
+    const baseY = t.y * stride + (cellSize / 2);
+
+    let dX = 0;
+    let dY = 0;
+
+    const range = cellSize; // Moves full cell width
+
+    switch (t.direction) {
+        case 'right': dX = (t.progress - 0.5) * range; break;
+        case 'left': dX = -(t.progress - 0.5) * range; break;
+        case 'down': dY = (t.progress - 0.5) * range; break;
+        case 'up': dY = -(t.progress - 0.5) * range; break;
+    }
+
+    // Train element is 40x40. Centered implies -20.
+    const trainSize = 40;
+    const offset = trainSize / 2;
+
+    trainEl.style.left = `${baseX + dX - offset}px`;
+    trainEl.style.top = `${baseY + dY - offset}px`;
+}
+
+function handleGameOver() {
+    state.gameState = 'gameover';
+    updateUI();
+}
+
+startBtn.addEventListener('click', initGame);
+
+// Initial Render (Empty)
+renderGrid();

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Train Connect</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="app">
+        <div class="header">
+            <h2 id="score-display">Score: 0</h2>
+            <h2 id="game-over-display" style="display: none; color: #ff4d4d;">GAME OVER</h2>
+        </div>
+
+        <div class="game-container">
+            <div id="game-grid" class="game-grid glass-panel">
+                <!-- Grid Cells Generated Here -->
+            </div>
+            <!-- Train Element -->
+            <div id="train" class="train" style="display: none;"></div>
+        </div>
+
+        <div class="glass-panel stock-container">
+            <h3 class="stock-title">NEXT TRACK</h3>
+            <div id="stock-panel" class="stock-panel">
+                <!-- Stock Items Generated Here -->
+            </div>
+        </div>
+
+        <button id="start-btn" class="start-btn">START GAME</button>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
