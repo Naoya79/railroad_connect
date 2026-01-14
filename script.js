@@ -95,8 +95,7 @@ function initGame() {
         x: 0,
         y: 0,
         direction: 'right',
-        progress: 0.0,
-        speed: TRAIN_SPEED
+        lastMoveTime: 0  // Track when last move happened
     };
 
     // Initialize Stock
@@ -326,17 +325,18 @@ function handleDrop(e, x, y) {
 function gameLoop() {
     if (state.gameState !== 'playing') return;
 
-    if (Date.now() < state.trainStartTime) {
+    const currentTime = Date.now();
+
+    if (currentTime < state.trainStartTime) {
         requestAnimationFrame(gameLoop);
         return;
     }
 
     const t = state.train;
-    t.progress += t.speed;
 
-    if (t.progress >= 1.0) {
-        t.progress = 0.0;
-
+    // Check if 2 seconds have passed since last move
+    if (currentTime - t.lastMoveTime >= 2000) {
+        // Time to move to next cell
         let nextX = t.x;
         let nextY = t.y;
 
@@ -365,7 +365,6 @@ function gameLoop() {
             return;
         }
 
-
         // ** Track Clearing Logic **
         // Train has moved FROM (t.x, t.y) TO (nextX, nextY).
         // The track at (t.x, t.y) should be cleared.
@@ -379,11 +378,11 @@ function gameLoop() {
         prevCellEl.className = 'cell';
         prevCellEl.innerHTML = ''; // Clear SVG
 
-        // Move
+        // Move to next cell
         t.x = nextX;
         t.y = nextY;
         t.direction = nextDir;
-        t.progress = 0.0; // Reset progress explicitly
+        t.lastMoveTime = currentTime;
 
         // Item Check (Coin)
         if (nextCell.item === 'coin') {
@@ -395,9 +394,11 @@ function gameLoop() {
             const coinEl = cellEl.querySelector('.item-coin');
             if (coinEl) coinEl.remove();
         }
+
+        // Update train position immediately
+        updateTrainVisuals();
     }
 
-    updateTrainVisuals();
     requestAnimationFrame(gameLoop);
 }
 
@@ -407,143 +408,19 @@ function updateTrainVisuals() {
     const gap = 2;
     const stride = cellSize + gap;
 
-    // We need to calculate precise position based on CELL + INTERNAL PROGRESS
-    // But now we need CURVE interpolation.
+    // Grid has 4px border offset
+    const borderOffset = 4;
 
-    // Get current cell track type
-    const currentCell = state.grid[t.y][t.x];
-    const trackType = currentCell.trackType || 'horizontal'; // Fallback
-
-    // Base coordinate (Top-Left of current cell)
-    const cellLeft = t.x * stride;
-    const cellTop = t.y * stride;
-
-    // Internal coordinate (0 to 64)
-    let localX = 0;
-    let localY = 0;
-
-    // Check if straight or curved
-    if (trackType === 'horizontal') {
-        localY = 32; // Center
-        // Left to Right or Right to Left?
-        // If direction is Right, we move 0 -> 64.
-        // If direction is Left, we move 64 -> 0.
-        // Wait, t.progress is always 0->1.
-        // And we update t.direction AFTER moving to next cell.
-        // So t.direction is the direction we are CURRENTLY moving in this cell.
-        if (t.direction === 'right') localX = t.progress * 64;
-        else localX = (1 - t.progress) * 64;
-    } else if (trackType === 'vertical') {
-        localX = 32;
-        if (t.direction === 'down') localY = t.progress * 64;
-        else localY = (1 - t.progress) * 64;
-    } else {
-        // CURVED TRACKS
-        // We need Bezier. Quadratic Bezier is enough.
-        // P0 (Start), P1 (Control), P2 (End).
-        // Control point is the CORNER of the cell (0,0), (64,0), (64,64), or (0,64).
-
-        let p0 = { x: 0, y: 0 };
-        let p1 = { x: 0, y: 0 };
-        let p2 = { x: 0, y: 0 };
-
-        // Determine entry/exit points
-        // top-right: Connects Top (32,0) <-> Right (64,32). Control (64,0).
-        // right-bottom: Right (64,32) <-> Bottom (32,64). Control (64,64).
-        // bottom-left: Bottom (32,64) <-> Left (0,32). Control (0,64).
-        // left-top: Left (0,32) <-> Top (32,0). Control (0,0).
-
-        if (trackType === 'top-right') {
-            p1 = { x: 64, y: 0 };
-            if (t.direction === 'right') { // Entering from Top (moving down? No, dir is 'right'??)
-                // Wait. getNextStep logic:
-                // If moving 'down' (entering from Top), we hit Top-Right track.
-                // Output direction is 'right'.
-                // So t.direction IS 'right'.
-                // Path: Top (32,0) -> Right (64,32).
-                p0 = { x: 32, y: 0 }; p2 = { x: 64, y: 32 };
-            } else { // Moving 'up' (entering from Right)
-                // t.direction is 'up'.
-                // Path: Right (64,32) -> Top (32,0).
-                p0 = { x: 64, y: 32 }; p2 = { x: 32, y: 0 };
-            }
-        } else if (trackType === 'right-bottom') {
-            p1 = { x: 64, y: 64 };
-            if (t.direction === 'down') { // Entering from Right
-                p0 = { x: 64, y: 32 }; p2 = { x: 32, y: 64 };
-            } else { // Moving 'left' (entering from Bottom)
-                p0 = { x: 32, y: 64 }; p2 = { x: 64, y: 32 };
-            }
-        } else if (trackType === 'bottom-left') {
-            p1 = { x: 0, y: 64 };
-            if (t.direction === 'left') { // Entering from Bottom
-                p0 = { x: 32, y: 64 }; p2 = { x: 0, y: 32 };
-            } else { // Moving 'up' (entering from Left) ?? No, if moving right, we enter left.
-                // If moving 'right' (entering from left), we hit bottom-left track.
-                // Out dir is 'down'.
-                // Wait.
-                // If we enter from Left, we are moving Right.
-                // bottom-left connects Bottom and Left.
-                // Entering from Left means moving right.
-                // Opposite of Right is Left.
-                // Connections: ['down', 'left'].
-                // Left is cameFrom. Next is Down.
-                // So t.direction will be 'down'.
-
-                // So if t.direction is 'down': Start Left (0,32) -> End Bottom (32,64).
-                p0 = { x: 0, y: 32 }; p2 = { x: 32, y: 64 };
-            }
-
-            // Wait, previous logic check:
-            // if track is 'bottom-left', connections = ['down', 'left'].
-            // if train.dir is 'right' (entering left side). cameFrom='left'.
-            // nextDir = 'down'.
-            // So YES, t.direction IS 'down'.
-            // But wait, my logic inside loop updates t.direction AFTER determining next move.
-            // When we enter the cell, we have the NEW direction?
-            // "t.direction = nextDir;" at line 357.
-            // Then "t.progress = 0.0".
-            // So during traversal of this cell, t.direction IS the OUTGOING direction.
-            // Correct.
-
-            // Re-verify 'bottom-left' case with dir 'left'.
-            // If dir is 'left'. CameFrom is 'right'.
-            // 'bottom-left' connects Down and Left. 'right' is not connected.
-            // So we can only enter from Down (moving Up) -> Out Left.
-            // If moving Up (dir='up'). CameFrom='down'. Connected.
-            // Next is 'left'.
-            // So t.direction becomes 'left'.
-            // Path: Bottom (32,64) -> Left (0,32).
-            if (t.direction === 'left') {
-                p0 = { x: 32, y: 64 }; p2 = { x: 0, y: 32 };
-            }
-        } else if (trackType === 'left-top') {
-            p1 = { x: 0, y: 0 };
-            if (t.direction === 'up') { // Entering from Left (moving Right -> Out Up)
-                p0 = { x: 0, y: 32 }; p2 = { x: 32, y: 0 };
-            } else { // Entering from Top (moving Down -> Out Left)
-                // Moving Down (dir='down'). CameFrom='up'.
-                // Next is 'left'.
-                // t.direction = 'left'.
-                p0 = { x: 32, y: 0 }; p2 = { x: 0, y: 32 };
-            }
-        }
-
-        // Calculate Bezier
-        // B(t) = (1-t)^2 P0 + 2(1-t)t P1 + t^2 P2
-        const u = 1 - t.progress;
-        const tt = t.progress;
-
-        localX = (u * u * p0.x) + (2 * u * tt * p1.x) + (tt * tt * p2.x);
-        localY = (u * u * p0.y) + (2 * u * tt * p1.y) + (tt * tt * p2.y);
-    }
+    // Always position train at center of current cell
+    const centerX = t.x * stride + (cellSize / 2) + borderOffset;
+    const centerY = t.y * stride + (cellSize / 2) + borderOffset;
 
     // Train element is 40x40. Centered implies -20.
     const trainSize = 40;
     const offset = trainSize / 2;
 
-    trainEl.style.left = `${cellLeft + localX - offset}px`;
-    trainEl.style.top = `${cellTop + localY - offset}px`;
+    trainEl.style.left = `${centerX - offset}px`;
+    trainEl.style.top = `${centerY - offset}px`;
 }
 
 function handleGameOver() {
