@@ -119,10 +119,11 @@ function getTrackSVG(type) {
     switch (type) {
         case 'horizontal': d = 'M0,32 L64,32'; break;
         case 'vertical': d = 'M32,0 L32,64'; break;
-        case 'top-right': d = 'M32,0 A32,32 0 0,0 64,32'; break;
-        case 'right-bottom': d = 'M64,32 A32,32 0 0,0 32,64'; break;
-        case 'bottom-left': d = 'M32,64 A32,32 0 0,0 0,32'; break;
-        case 'left-top': d = 'M0,32 A32,32 0 0,0 32,0'; break;
+        // Right-angle tracks (L-shaped)
+        case 'top-right': d = 'M32,0 L32,32 L64,32'; break;      // ┐ shape
+        case 'right-bottom': d = 'M64,32 L32,32 L32,64'; break;  // ┘ shape
+        case 'bottom-left': d = 'M32,64 L32,32 L0,32'; break;    // └ shape
+        case 'left-top': d = 'M0,32 L32,32 L32,0'; break;        // ┌ shape
     }
 
     return `
@@ -408,12 +409,14 @@ function updateTrainVisuals() {
     const gap = 2;
     const stride = cellSize + gap;
 
-    // Grid has 4px border offset
-    const borderOffset = 4;
+    // Grid container has 16px padding + 4px border
+    const containerPadding = 16;
+    const gridBorder = 4;
+    const totalOffset = containerPadding + gridBorder;
 
     // Always position train at center of current cell
-    const centerX = t.x * stride + (cellSize / 2) + borderOffset;
-    const centerY = t.y * stride + (cellSize / 2) + borderOffset;
+    const centerX = t.x * stride + (cellSize / 2) + totalOffset;
+    const centerY = t.y * stride + (cellSize / 2) + totalOffset;
 
     // Train element is 40x40. Centered implies -20.
     const trainSize = 40;
