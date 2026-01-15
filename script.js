@@ -135,20 +135,19 @@ function getTrackSVG(type) {
 }
 
 function getStockSVG(type) {
-    // Simplified paths for icon
+    // Simplified paths for icon (scaled to 30x30)
     let d = '';
     switch (type) {
         case 'horizontal': d = 'M0,15 L30,15'; break;
         case 'vertical': d = 'M15,0 L15,30'; break;
-        case 'top-right': d = 'M15,0 A15,15 0 0,0 30,15'; break;
-        case 'right-bottom': d = 'M30,15 A15,15 0 0,0 15,30'; break;
-        case 'bottom-left': d = 'M15,30 A15,15 0 0,0 0,15'; break;
-        case 'left-top': d = 'M0,15 A15,15 0 0,0 15,0'; break;
+        // Right-angle tracks (L-shaped, scaled down)
+        case 'top-right': d = 'M15,0 L15,15 L30,15'; break;      // ┐ shape
+        case 'right-bottom': d = 'M30,15 L15,15 L15,30'; break;  // ┘ shape
+        case 'bottom-left': d = 'M15,30 L15,15 L0,15'; break;    // └ shape
+        case 'left-top': d = 'M0,15 L15,15 L15,0'; break;        // ┌ shape
     }
-    // SVG with arrow indicator
-    let arrow = '';
-    // Draw arrow based on flow. Flow is bi-directional conceptually but stock icons should show connection.
-    // Let's use simple dots at endpoints to show connection points.
+
+    // Connection point dots
     const dots = {
         'horizontal': '<circle cx="5" cy="15" r="2" fill="#3b82f6"/><circle cx="25" cy="15" r="2" fill="#3b82f6"/>',
         'vertical': '<circle cx="15" cy="5" r="2" fill="#3b82f6"/><circle cx="15" cy="25" r="2" fill="#3b82f6"/>',
@@ -160,7 +159,7 @@ function getStockSVG(type) {
 
     return `
         <svg viewBox="0 0 30 30" style="width:24px; height:24px;">
-            <path d="${d}" stroke="#3b82f6" stroke-width="4" fill="none" stroke-linecap="round" />
+            <path d="${d}" stroke="#3b82f6" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round" />
             ${dots[type]}
         </svg>
     `;
